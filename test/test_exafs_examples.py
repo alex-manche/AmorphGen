@@ -40,6 +40,34 @@ def test_study_retains_inputs_matches_sites_and_rejects_changes(tmp_path):
         study.prepare(args)
 
 
+def test_study_defaults_are_the_validated_protocol(tmp_path):
+    study = load_study_module()
+    defaults = study.build_parser().parse_args(["prepare", "--output", str(tmp_path / "x")])
+    assert (defaults.rpath, defaults.nleg, defaults.criteria, defaults.stoichiometry) == \
+        (8, 4, "1.0 0.5", "structure")
+    assert defaults.radii == [8, 10, 12]
+    inputs = tmp_path / "structures"
+    inputs.mkdir()
+    for n in range(2):
+        write(inputs / f"cell{n}.xyz", bulk("Ga", "fcc", a=4+n*.1, cubic=True))
+    experiment = tmp_path / "experiment.dat"
+    np.savetxt(experiment, np.c_[np.arange(1, 14, .05), np.ones(260)])
+    args = SimpleNamespace(output=tmp_path / "study", structures=inputs, pattern="*.xyz",
+                           experiment=experiment, radii=[3, 4], max_sites=3, seed=0, rpath=3,
+                           nleg=4, criteria="1.0 0.5", stoichiometry="structure")
+    study.prepare(args)
+    saved = json.loads((args.output / "study.json").read_text())
+    assert saved["config"]["criteria"] == "1.0 0.5"
+    assert saved["config"]["stoichiometry"] == "structure"
+    protocol = next((args.output / "r3").glob("*/feff.inp")).read_text()
+    legacy = next((args.output / "legacy_60").glob("*/feff.inp")).read_text()
+    assert "CRITERIA  1.0 0.5" in protocol and "RPATH     3" in protocol
+    assert "CRITERIA" not in legacy and "RPATH     6.0" in legacy
+    manifest = json.loads((args.output / "r3/manifest.json").read_text())
+    assert manifest["stoichiometry"] == "structure"
+    assert json.loads((args.output / "legacy_60/manifest.json").read_text())["stoichiometry"] == "cluster"
+
+
 def test_spectral_fit_recovers_known_adjustments_without_clamping():
     study = load_study_module()
     k = np.arange(.05, 15.01, .05)

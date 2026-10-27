@@ -2,6 +2,17 @@
 
 The experimental file must contain k and k**2*chi in its first two columns.
 Its arbitrary amplitude is fitted, never treated as an absolute calibration.
+
+The command-line defaults are the validated protocol (docs/guides/exafs.md,
+"Validated settings"): RPATH 8 A, NLEG 4, CRITERIA 1.0 0.5, parent-cell
+potential populations, and radii 8, 10 and 12 A around the 10 A cluster. The
+original study used 5-8 A radii, RPATH 6 A, FEFF's default path filters and
+cluster-inferred populations, which are not path-converged; reproduce it with
+
+    --radii 5 6 7 8 --rpath 6 --criteria default --stoichiometry cluster
+
+The legacy_60 tree always uses that original 3-site recipe, as a fixed
+reference.
 """
 from __future__ import annotations
 
@@ -38,10 +49,16 @@ def prepare(args):
     if args.max_sites < 3 or any(r <= 0 for r in radii):
         raise ValueError("Need at least three sites per structure and positive radii")
     source_hashes = {p.name: sha(p) for p in paths}
+    # Namespaces without these attributes get the original study's settings.
+    nleg = int(getattr(args, "nleg", 4))
+    criteria = getattr(args, "criteria", None)
+    criteria = None if criteria in (None, "default") else criteria
+    stoichiometry = getattr(args, "stoichiometry", "cluster")
     config = {
         "sources": source_hashes, "experiment_sha256": sha(args.experiment),
         "radii_A": radii, "max_sites": args.max_sites, "seed": args.seed,
-        "rpath_A": args.rpath, "nleg": 4, "s02": 1.0,
+        "rpath_A": args.rpath, "nleg": nleg, "criteria": criteria,
+        "stoichiometry": stoichiometry, "s02": 1.0,
         "comparison_k_range_Ainv": [3.0, 12.0],
         "convergence_relative_rms_target": 0.02,
         "target_note": "2% is an operational numerical tolerance, not an experimental uncertainty",
@@ -64,13 +81,17 @@ def prepare(args):
         shutil.copy2(p, root / "inputs" / p.name)
     shutil.copy2(args.experiment, root / "inputs/experiment_k2chi.dat")
     write(root / "inputs/ensemble.extxyz", atoms)
-    definitions = [(f"r{r:g}", r, args.max_sites) for r in radii]
-    definitions.append(("legacy_60", 6.0, 3))
+    cards = {"RPATH": str(args.rpath), "NLEG": str(nleg)}
+    if criteria is not None:
+        cards["CRITERIA"] = criteria
+    definitions = [(f"r{r:g}", r, args.max_sites, cards, stoichiometry) for r in radii]
+    # The original 3-site recipe, unchanged: RPATH 6 A, default filters, cluster populations.
+    definitions.append(("legacy_60", 6.0, 3, {"RPATH": "6.0", "NLEG": "4"}, "cluster"))
     tasks, trees, ranks = [], {}, {}
-    for name, radius, count in definitions:
+    for name, radius, count, tree_cards, tree_stoichiometry in definitions:
         manifest = feff.write_feff_jobs(
             atoms, "Ga", str(root / name), n_sites=count, radius=radius,
-            seed=args.seed, cards={"RPATH": str(args.rpath), "NLEG": "4"},
+            seed=args.seed, cards=tree_cards, stoichiometry=tree_stoichiometry,
         )
         trees[name] = {"radius_A": radius, "sites_per_structure": count,
                        "manifest_sha256": sha(root / name / "manifest.json")}
@@ -340,22 +361,32 @@ def analyse(args):
     print(json.dumps({"convergence": summary, "fits": fits}, indent=2))
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("stage", choices=("prepare", "run", "analyse"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--structures", type=Path)
     parser.add_argument("--pattern", default="*.vasp")
     parser.add_argument("--experiment", type=Path)
-    parser.add_argument("--radii", type=float, nargs="+", default=[5, 6, 7, 8])
+    parser.add_argument("--radii", type=float, nargs="+", default=[8, 10, 12])
     parser.add_argument("--max-sites", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--rpath", type=float, default=6)
+    parser.add_argument("--rpath", type=float, default=8)
+    parser.add_argument("--nleg", type=int, default=4)
+    parser.add_argument("--criteria", default="1.0 0.5",
+                        help='FEFF CRITERIA card; "default" leaves FEFF\'s own filters')
+    parser.add_argument("--stoichiometry", choices=("structure", "cluster"), default="structure")
     parser.add_argument("--executable", default="feff")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--task-index", type=int)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--pilot", action="store_true")
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
     if args.stage == "prepare" and (args.structures is None or args.experiment is None):
         parser.error("prepare requires --structures and --experiment")

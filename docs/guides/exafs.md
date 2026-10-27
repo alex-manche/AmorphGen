@@ -26,6 +26,52 @@ Two sites are an execution demonstration, not a converged ensemble.
 goes through all three calculations on the Tutorial 8 cells, including a
 FEFF convergence check.
 
+## Validated settings
+
+:::{note}
+These settings passed a 2 % convergence test with FEFF8.5L on MACE-MPA-0
+ensembles of a-Ga₂O₃ (Ga K edge) and a-InGaZnO₄ (Zn, Ga and In K edges). The
+test compares the complex Fourier transform up to R = 4 Å (k² or k³, Hanning
+window 3–12 Å⁻¹, dk = 1 Å⁻¹).
+
+| Setting | Value | Option |
+|---|---|---|
+| Cluster radius | 10 Å | `--feff-radius 10` |
+| Path length | 8 Å | `--feff-card RPATH=8` |
+| Path filters | 1.0 % and 0.5 % | `--feff-card "CRITERIA=1.0 0.5"` |
+| Scattering order | 4 legs | default (`NLEG 4`) |
+| Potential populations | parent cell | `--feff-stoichiometry structure` |
+| Potentials | non-self-consistent, Hedin–Lundqvist, S₀² = 1 | defaults |
+
+Each refinement changed the transform by at most 0.54 % (a-Ga₂O₃, 3140 sites in
+20 cells) and 0.80 % (a-InGaZnO₄, 10 sites per element in 20 cells, worst edge):
+path filters 0.25 % and 0.125 %, `RPATH` 10 Å, `NLEG` 6 and a 12 Å cluster.
+Every absorber site was used: all 160 Ga sites in each of 100 a-Ga₂O₃ cells,
+and all 50 sites per element in each of 504 a-InGaZnO₄ cells. Half the median
+difference between two halves of the cells was 0.99 % (a-Ga₂O₃) and at most
+1.81 % (a-InGaZnO₄).
+
+The test covers the first shells and the region up to 4 Å, for static
+structures. It does not cover the full k-space spectrum, where tighter filters
+and longer paths still change χ(k) by up to about 12 % through paths beyond
+4 Å. Nor does it cover thermal disorder, self-consistent potentials, FEFF10 or
+other materials. The defaults (6 Å cluster, `RPATH` equal to the radius, FEFF's own
+`CRITERIA`, cluster-inferred populations) are kept for compatibility. They are
+not path-converged: going from `RPATH` 6 to 8 Å changes the a-Ga₂O₃ χ(k) by
+6.3 %.
+
+```bash
+amorphgen --analyse --input-dir structures \
+  --feff-write feff --feff-absorber Ga --feff-radius 10 \
+  --feff-stoichiometry structure --feff-card RPATH=8 \
+  --feff-card "CRITERIA=1.0 0.5" --feff-run --feff-workers 8 \
+  --feff-kmin 3 --feff-kmax 12 --save-plot analysis
+```
+
+Choose the number of sites and cells for your own system by a convergence
+test. `examples/exafs/ga2o3_validation.py` uses these settings by default.
+:::
+
 ## Descriptors
 
 ```bash

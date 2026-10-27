@@ -31,6 +31,9 @@ python examples/exafs/run_example.py collect --output ga2o3_exafs_example
 The existing job tree can be rerun with unchanged inputs. Use a new output
 directory after changing the structure, radius or FEFF cards.
 
-`ga2o3_validation.py` provides the larger reproducibility/convergence study.
-It requires an explicit ensemble directory and experimental curve; it does not
-substitute the two tutorial cells for the original twenty-cell ensemble.
+`ga2o3_validation.py` provides the larger reproducibility and convergence study.
+It requires an explicit ensemble directory and experimental curve. It doesn't
+substitute the two tutorial cells for a full ensemble. Its defaults are the
+validated settings of the EXAFS guide: RPATH 8 Å, CRITERIA 1.0 0.5, parent-cell
+populations, and radii 8, 10 and 12 Å. To reproduce the original study, pass
+`--radii 5 6 7 8 --rpath 6 --criteria default --stoichiometry cluster`.
