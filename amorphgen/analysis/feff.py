@@ -1213,23 +1213,32 @@ def feff_uncertainty(result, confidence=0.95, n_bootstrap=1000, seed=0):
                                 n_bootstrap=n_bootstrap, seed=seed)
     if not all(key in result for key in ("ft_kmin", "ft_kmax", "ft_dk")):
         return chik, None
-    kstep = float(np.round(k[1] - k[0], 10))
-    n_r = len(result["r"])
+    window = {"kweight": kw, "kmin": result["ft_kmin"], "kmax": result["ft_kmax"],
+              "dk": result["ft_dk"], "kstep": float(np.round(k[1] - k[0], 10))}
+    chir = _chir_bootstrap(k, per, window, len(result["r"]), confidence,
+                           n_bootstrap, seed)
+    return chik, chir
+
+
+def _chir_bootstrap(k, per, window, n_r, confidence, n_bootstrap, seed):
+    """Pointwise percentile band of ``|chi(R)|`` over resampled structures.
+
+    Each draw resamples whole structures (rows of ``per``), averages them in
+    k and transforms with ``window`` (``kweight``, ``kmin``, ``kmax``,
+    ``dk``, ``kstep``), so the band describes the transformed mean.
+    """
     rng = np.random.default_rng(seed)
     draws = np.empty((n_bootstrap, n_r))
     for i in range(n_bootstrap):
         mean = per[rng.integers(0, len(per), len(per))].mean(axis=0)
-        draws[i] = chi_fourier_transform(
-            k, mean, kweight=kw, kmin=result["ft_kmin"], kmax=result["ft_kmax"],
-            dk=result["ft_dk"], kstep=kstep)["chir_mag"][:n_r]
+        draws[i] = chi_fourier_transform(k, mean, **window)["chir_mag"][:n_r]
     tail = (1.0 - confidence) / 2.0
     low, high = np.quantile(draws, [tail, 1.0 - tail], axis=0)
-    chir = {"bootstrap_low": low.tolist(), "bootstrap_high": high.tolist(),
+    return {"bootstrap_low": low.tolist(), "bootstrap_high": high.tolist(),
             "confidence": float(confidence), "n_bootstrap": int(n_bootstrap),
             "seed": int(seed), "n_structures": int(len(per)),
             "sampling_unit": "structure", "bootstrap_method": "percentile",
             "band_type": "pointwise"}
-    return chik, chir
 
 
 def _feff_csv_header(result):

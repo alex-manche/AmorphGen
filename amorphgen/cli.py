@@ -912,6 +912,8 @@ def _add_arguments(p):
                       help="Explicitly trust and import spectra run outside AmorphGen; "
                            "requires matching current inputs. Historical correspondence "
                            "is the caller's responsibility.")
+    from .feff_experiment_cli import add_feff_experiment_arguments
+    add_feff_experiment_arguments(g_ff)
 
     return p
 
@@ -2523,10 +2525,21 @@ def _main():
         if feff_collect:
             from .analysis.feff import find_feff_trees
             collect_trees += find_feff_trees(feff_collect)
+        from .feff_experiment_cli import feff_experiment_specs, run_feff_experiment
+        try:
+            feff_specs = feff_experiment_specs(
+                args, an_cfg, _typed,
+                n_trees=len({os.path.realpath(tree) for tree in collect_trees}))
+        except (ValueError, TypeError) as exc:
+            print(f"Error: --feff-experiment: {exc}")
+            sys.exit(1)
+        if feff_specs and not collect_trees:
+            print("Error: --feff-experiment needs --feff-collect or --feff-run.")
+            sys.exit(1)
         if collect_trees:
             from .analysis.feff import (collect_feff_results,
                                         format_feff_report, plot_feff)
-            seen = set()
+            seen, compared = set(), set()
             for tree in collect_trees:
                 if os.path.realpath(tree) in seen:
                     continue
@@ -2553,6 +2566,23 @@ def _main():
                               dpi=plot_kwargs.get("dpi", 300),
                               save_pdf=plot_kwargs.get("save_pdf", False),
                               show_title=plot_kwargs.get("show_title", False))
+                spec = feff_specs.get(ff["absorber"], feff_specs.get(None))
+                if spec is not None:
+                    try:
+                        run_feff_experiment(
+                            ff, spec, args, an_cfg, _typed, plot_dir=plot_dir,
+                            report_path=report_path,
+                            dpi=plot_kwargs.get("dpi", 300),
+                            save_pdf=plot_kwargs.get("save_pdf", False))
+                    except (ValueError, OSError) as exc:
+                        print(f"Error: EXAFS comparison ({ff['absorber']}): {exc}")
+                        sys.exit(1)
+                    compared.add(ff["absorber"])
+            unmatched = sorted(set(feff_specs) - compared - {None})
+            if unmatched:
+                print(f"Error: --feff-experiment names {', '.join(unmatched)}, "
+                      "but no tree for that absorber was collected.")
+                sys.exit(1)
 
         ref_path = args.reference or an_cfg.get("reference")
         if ref_path:

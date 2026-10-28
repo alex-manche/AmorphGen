@@ -33,6 +33,12 @@
   from first-shell cumulants and harmonic-fit bias to `feff_pipeline()`
   spectra and a FEFF convergence check. Sections 1-3 run without FEFF.
   The README gains an EXAFS section and Tutorial 9 entry.
+- Comparison of FEFF spectra with a measured chi(k) (`--feff-experiment`;
+  `amorphgen.analysis.feff_experiment`). Measured and calculated spectra
+  share the measured k points and one Fourier transform, and are written
+  side by side as `analysis_<El>_feff_experiment_chik.csv` and `_chir.csv`,
+  with JSON, report and figures. Amplitude, dE0, dsigma2 and an offset can be
+  fixed or fitted (`--feff-fit`); k- and R-space R-factors are reported.
 
 ## v1.0.0rc6 (2026-10-20)
 

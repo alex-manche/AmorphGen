@@ -263,6 +263,81 @@ caller. It cannot reconstruct missing provenance. It does not override changed
 inputs, altered recorded outputs, or a failed managed run. Subsequent collection
 does not need the flag. Keep original result directories backed up before import.
 
+## Compare with a measured spectrum
+
+`--feff-experiment` puts a measured chi(k) beside each collected spectrum, on
+the measured k points and through one Fourier transform:
+
+```bash
+amorphgen --analyse --input-dir structures --feff-collect feff_ga \
+  --feff-kmin 3 --feff-kmax 12 --feff-dk 1 --feff-kweight 2 \
+  --feff-experiment Ga=ga2o3_k2chi.dat --feff-experiment-kweight 2 \
+  --feff-fit amplitude,e0,sigma2 --save-plot analysis
+```
+
+The file holds k (Å⁻¹) and chi, or k^w chi with `--feff-experiment-kweight w`
+(2 for an Athena `chik2` column), plus an optional one-sigma error of that
+column. Select columns with `--feff-experiment-columns` and skip a header with
+`--feff-experiment-skiprows`, as for `--experiment-sq`. Background subtraction,
+normalisation and E0 choice stay with Athena or Larch. With several absorber
+trees, name each file as `EL=FILE`; the option is repeatable.
+
+**Model.** Each structure's spectrum is adjusted, interpolated onto the
+measured k points, then averaged with equal structure weights:
+
+    A * chi_s(sqrt(k^2 - 0.26247*dE0)) * exp(-2*dsigma2*k^2)
+
+`--feff-amplitude` (A, i.e. S0²), `--feff-delta-e0` (eV) and
+`--feff-delta-sigma2` (Å²) fix these values; the defaults change nothing. The
+dE0 sign is that of IFEFFIT, Artemis and Larch, so a value from your own
+shell fit can be used directly. `--feff-offset` adds a constant to the model in
+the measured column's weighting, for digitised curves drawn with an offset.
+Points at k ≤ 0, below the shifted edge or beyond the model's k range are
+excluded and counted. Nothing is extrapolated.
+
+**Fitting** is off unless `--feff-fit` names some of `amplitude`, `e0`,
+`sigma2` and `offset`. They are fitted by least squares to k^w chi of the
+ensemble mean over `--feff-fit-krange` (default: the FT window within the
+measured data), with dE0 bounded to ±15 eV and dsigma2 to −0.01 to 0.03 Å².
+Measured sigma, when given, weights the fit. Fitted adjustments absorb errors
+of the model as well as calibration: a good fit is agreement after adjustment,
+not independent validation. The bands use the fitted values held fixed, so they
+describe structure sampling only.
+
+**Transforms.** Both chi(k) are taken on the same measured k points and
+transformed with the collected window and k weight, so the two chi(R) are
+like-for-like and both phase-uncorrected. A measured chi(R) file cannot be
+used instead, because its window is not recorded in it. A window set
+explicitly with `--feff-kmin` / `--feff-kmax` must fit inside the k range the
+measured data and the model share, or the run stops. The default window is
+moved inside it, and the report says so.
+
+**Metrics** (all descriptive; neighbouring points are correlated):
+
+| Key | Definition |
+|---|---|
+| k space, `r_factor` | sum(calc − obs)² / sum(obs²) on k^w chi over the fit range, as in Artemis/Larch |
+| k space, `normalized_squared_residual` | sum(calc − obs)² / sum(obs − mean obs)² |
+| k space, `chi_square` | with measured sigma only; dof = points − fitted adjustments |
+| R space, `r_factor` | sum of squared real and imaginary differences / sum of squared measured parts, over `--feff-fit-rrange` (default 1–4 Å) |
+| R space, `d_r` | square root of the R-space `r_factor` |
+| R space, `n_independent` | 2·Δk·ΔR/π |
+
+**Files**, with `--save-plot DIR` and base `analysis_<El>_feff_experiment`:
+
+| File | Content |
+|---|---|
+| `{base}_chik.csv` | One row per measured k used: measured and calculated chi and k^w chi, residual, structure statistics, window, whether in the fit range |
+| `{base}_chir.csv` | One row per R: measured and calculated magnitude, real and imaginary parts, residuals, bootstrap band, whether in the R range |
+| `{base}.json`, `{base}_report.txt` | All settings, adjustments, exclusions, metrics and definitions |
+| `{base}_chik.png`, `{base}_chir.png` | Overlay with band and residual panel |
+
+Both CSVs start with a `#` line of the settings, including the adjustments and
+which were fitted. In Python: `load_exafs_experiment`,
+`compare_feff_experiment` and `save_feff_experiment_comparison` in
+`amorphgen.analysis.feff_experiment`, with the matching `analysis.feff_*` YAML
+keys (`feff_experiment` is a path or `{El: path}`).
+
 ## Scientific interpretation
 
 Relaxed structures provide static configurational disorder; thermal motion is
@@ -280,7 +355,7 @@ parameters fitted directly to measured spectra.
 
 ```bash
 python -m pytest test/test_exafs.py test/test_harmonic.py \
-  test/test_feff.py test/test_feff_integrity.py
+  test/test_feff.py test/test_feff_integrity.py test/test_feff_experiment.py
 python -m pytest test/test_feff_integration.py --run-feff
 ```
 

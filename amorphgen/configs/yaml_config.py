@@ -155,6 +155,17 @@ _BLOCK_SCHEMA = {
         "feff_kmax": _NUMBER,
         "feff_dk": _NUMBER,
         "feff_trust_external": bool,
+        "feff_experiment": (str, dict, type(None)),
+        "feff_experiment_kweight": int,
+        "feff_experiment_columns": (list, type(None)),
+        "feff_experiment_skiprows": int,
+        "feff_amplitude": _NUMBER,
+        "feff_delta_e0": _NUMBER,
+        "feff_delta_sigma2": _NUMBER,
+        "feff_offset": _NUMBER,
+        "feff_fit": (str, list, type(None)),
+        "feff_fit_krange": (list, type(None)),
+        "feff_fit_rrange": (list, type(None)),
         "screening": (dict, bool),
         "screening_output": _OPTIONAL_STRING,
         "convergence": bool,
@@ -367,6 +378,28 @@ def _validate_nested_values(cfg: dict, errors: list[str], path: str) -> None:
             for key, value in cards.items()):
         errors.append("analysis.feff_cards must map card names to strings or numbers, "
                       "e.g. {RPATH: 8, CRITERIA: '1.0 0.5'}")
+    kweight = analysis.get("feff_experiment_kweight")
+    if type(kweight) is int and not 0 <= kweight <= 3:
+        errors.append("analysis.feff_experiment_kweight must be from 0 to 3")
+    for name in ("feff_amplitude", "feff_delta_e0", "feff_delta_sigma2", "feff_offset"):
+        value = analysis.get(name)
+        if type(value) in _NUMBER and not math.isfinite(value):
+            errors.append(f"analysis.{name} must be finite")
+    fit = analysis.get("feff_fit")
+    fit = fit.split(",") if isinstance(fit, str) else fit
+    if isinstance(fit, list) and any(
+            not isinstance(name, str)
+            or name.strip() not in ("amplitude", "e0", "sigma2", "offset") for name in fit):
+        errors.append("analysis.feff_fit may name only amplitude, e0, sigma2 and offset")
+    spectra = analysis.get("feff_experiment")
+    if isinstance(spectra, dict) and any(
+            not isinstance(spec, (str, dict))
+            or isinstance(spec, dict) and (not isinstance(spec.get("file"), str)
+                                           or set(spec) - {"file", "kweight", "columns",
+                                                           "skiprows"})
+            for spec in spectra.values()):
+        errors.append("analysis.feff_experiment must map elements to a file, or to "
+                      "{file, kweight, columns, skiprows}")
     for name, minimum in (("exafs_bootstrap", 0), ("harmonic_bootstrap", 0),
                           ("harmonic_kweight", 0), ("feff_kweight", 0),
                           ("feff_sites", 1), ("feff_workers", 1)):
@@ -468,7 +501,8 @@ def _validate_scattering_values(analysis: dict, errors: list[str]) -> None:
         if isinstance(value, str) and value not in allowed:
             errors.append(f"analysis.{name} must be one of {', '.join(allowed)}")
 
-    for name, minimum in (("experiment_skiprows", 0), ("sq_nq", 2), ("xrd_nq", 2)):
+    for name, minimum in (("experiment_skiprows", 0), ("feff_experiment_skiprows", 0),
+                          ("sq_nq", 2), ("xrd_nq", 2)):
         value = analysis.get(name)
         if type(value) is int and value < minimum:
             errors.append(f"analysis.{name} must be at least {minimum}")
@@ -491,7 +525,7 @@ def _validate_scattering_values(analysis: dict, errors: list[str]) -> None:
     # which can be overridden on the CLI. compute_xrd_pattern validates that
     # relationship after the final values have been merged.
 
-    for name in ("sq_fit_range", "tr_fit_range"):
+    for name in ("sq_fit_range", "tr_fit_range", "feff_fit_krange", "feff_fit_rrange"):
         bounds = analysis.get(name)
         if not isinstance(bounds, list):
             continue
@@ -507,19 +541,21 @@ def _validate_scattering_values(analysis: dict, errors: list[str]) -> None:
         if valid and bounds[0] > bounds[1]:
             errors.append(f"analysis.{name} must have lower <= upper")
 
-    columns = analysis.get("experiment_columns")
-    if isinstance(columns, list):
+    for name in ("experiment_columns", "feff_experiment_columns"):
+        columns = analysis.get(name)
+        if not isinstance(columns, list):
+            continue
         if len(columns) not in (2, 3):
-            errors.append("analysis.experiment_columns must select two or three columns")
+            errors.append(f"analysis.{name} must select two or three columns")
         valid = True
         for index, value in enumerate(columns):
-            if not _check_type(value, int, f"analysis.experiment_columns[{index}]", errors):
+            if not _check_type(value, int, f"analysis.{name}[{index}]", errors):
                 valid = False
             elif value < 0:
-                errors.append(f"analysis.experiment_columns[{index}] must be non-negative")
+                errors.append(f"analysis.{name}[{index}] must be non-negative")
                 valid = False
         if valid and len(set(columns)) != len(columns):
-            errors.append("analysis.experiment_columns must select distinct columns")
+            errors.append(f"analysis.{name} must select distinct columns")
 
     qrange = analysis.get("tr_qrange")
     if (isinstance(qrange, list) and len(qrange) == 2

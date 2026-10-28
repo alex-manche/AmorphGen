@@ -89,6 +89,22 @@ def load_experiment(path, kind="sq", *, columns=None, delimiter=None,
     inverse square angstrom. The return value is JSON-native.
     """
     kind = _kind(kind)
+    data, columns, delimiter = _read_table(path, columns, delimiter, skiprows, comments)
+    x, y, sigma = _measurement({"x": data[:, 0], "observed": data[:, 1],
+                               "sigma": data[:, 2] if data.shape[1] == 3 else None})
+    return {"kind": kind, "x": x.tolist(), "observed": y.tolist(),
+            "sigma": sigma.tolist() if sigma is not None else None,
+            "source": str(path), "units": _units(kind),
+            "columns": list(columns) if columns is not None else list(range(data.shape[1])),
+            "delimiter": delimiter, "skiprows": int(skiprows), "comments": comments}
+
+
+def _read_table(path, columns, delimiter, skiprows, comments):
+    """Two or three numeric columns as ``(data, columns, delimiter)``.
+
+    Shared by :func:`load_experiment` and the EXAFS loader, so measured files
+    of every kind are parsed and rejected the same way.
+    """
     if (not isinstance(skiprows, (int, np.integer))
             or isinstance(skiprows, (bool, np.bool_)) or skiprows < 0):
         raise ValueError("skiprows must be a non-negative integer")
@@ -123,13 +139,7 @@ def load_experiment(path, kind="sq", *, columns=None, delimiter=None,
         raise ValueError(f"cannot read experimental data: {exc}") from exc
     if data.shape[1] not in (2, 3):
         raise ValueError("experimental data require two or three columns; use columns= to select them")
-    x, y, sigma = _measurement({"x": data[:, 0], "observed": data[:, 1],
-                               "sigma": data[:, 2] if data.shape[1] == 3 else None})
-    return {"kind": kind, "x": x.tolist(), "observed": y.tolist(),
-            "sigma": sigma.tolist() if sigma is not None else None,
-            "source": str(path), "units": _units(kind),
-            "columns": list(columns) if columns is not None else list(range(data.shape[1])),
-            "delimiter": delimiter, "skiprows": int(skiprows), "comments": comments}
+    return data, columns, delimiter
 
 
 def _model(calculated, kind):
